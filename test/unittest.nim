@@ -1,9 +1,23 @@
 ##***h* test/test
 ##* TODO
 ##*   - implement overriding env and expect objects
+##*   - hash test cases and combine with the subject of test hash so that
+##*     tests are only executed when either changes
 ##*   - design test execution plan
 ##*     - concurrent & async
+##*   - persist test results and metrics in a timeseries
+##*     - id
+##*     - stdout/stderr output
+##*     - setup/teardown timing
+##*     - exec timing
+##*     - exec coverage
+##*     - exec profiling
+##*     - memory profiling
+##*     - memory leaks
+##*     - fuzz results
+##*   - load default env and expect from a config
 ##*****
+
 import pkg/prelude/[common, lib]
 
 when defined test:
@@ -21,6 +35,7 @@ when defined test:
 
   iface TextMatcher:
     proc firstMatch(corpus, pattern: string): Option[Slice[int]]
+
   type TestKind* {.pure.} = enum
     Unit,
     Functional,
@@ -94,9 +109,9 @@ when defined test:
   proc runTests() =
     if testCases.len > 0:
       echo "running " & $testCases.len & " tests"
-#[       for sig, tests in testCases.pairs:
+      for sig, tests in testCases.pairs:
         for test in tests:
-          echo test.subject.signature[0..4] & test.subject.ident & test.subject.signature[5..^1] ]#
+          echo test.subject.signature[0..4] & test.subject.ident & test.subject.signature[5..^1]
 
   from std/exitprocs import addExitProc
   exitprocs.addExitProc runTests
