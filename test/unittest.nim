@@ -109,10 +109,10 @@ when defined test:
   macro implHash(sym: typed): untyped =
     newLit symBodyHash sym
 
-  func buildTestCase(title = "", env = defaultEnvironment, expect = defaultExpectation, stdin = ""):
-    TestCase {.compileTime, inline.} = TestCase(title: title, env: env, expect: expect, stdin: stdin)
+  template buildTestCase(title, env, expect, stdin: untyped = nnkDiscardStmt): untyped =
+    newPar(title, env, expect, stdin)
 
-proc extractTests(procDef: NimNode): (NimNode, seq[TestCase]) {.compileTime.} =
+proc extractTests(procDef: NimNode): (NimNode, seq[NimNode]) {.compileTime.} =
   result[0] = procDef.copy
   alias origBody, procDef[6]
   alias newBody, result[0][6]
@@ -126,91 +126,86 @@ proc extractTests(procDef: NimNode): (NimNode, seq[TestCase]) {.compileTime.} =
   for child in origBody.children:
     child.matchAst:
     of nnkCall(ident"test", `body` @ nnkStmtList):
-      when defined test: tests.add buildTestCase($tests.len, stdin = body.repr)
+      when defined test: tests.add newPar(newLit($tests.len), nil, nil, body)
     of nnkCommand(ident"test", `title` @ nnkStrLit, `body` @ nnkStmtList):
-      when defined test: tests.add buildTestCase($title, stdin = body.repr)
+      when defined test: tests.add newPar(newLit($title), nil, nil, body)
     of nnkCommand(ident"test", nnkCommand(`title` @ nnkStrLit,
        nnkCommand(ident"with", `envOverride` @ nnkPar)), `body` @ nnkStmtList):
-      when defined test: tests.add buildTestCase($title, override(defaultEnvironment, envOverride), stdin = body.repr)
+      when defined test: tests.add newPar(newLit($title), envOverride, nil, body)
     of nnkCommand(ident"test",
        nnkCommand(ident"with", `envOverride` @ nnkPar), `body` @ nnkStmtList):
-      when defined test: tests.add buildTestCase($tests.len, override(defaultEnvironment, envOverride), stdin = body.repr)
+      when defined test: tests.add newPar(newLit($tests.len), envOverride, nil, body)
     of nnkCommand(ident"with", nnkCommand(`envOverride` @ nnkPar,
        nnkCommand(ident"test", `title` @ nnkStrLit)), `body` @ nnkStmtList):
-      when defined test: tests.add buildTestCase($title, override(defaultEnvironment, envOverride), stdin = body.repr)
+      when defined test: tests.add newPar(newLit($title), envOverride, nil, body)
     of nnkCommand(ident"with", `envOverride` @ nnkPar, `body` @ nnkStmtList):
       when defined test:
-        var env = override(defaultEnvironment, envOverride)
-        body.matchAst:
-        of nnkCall(ident"test", `body` @ nnkStmtList):
-          when defined test: tests.add buildTestCase($tests.len, env, stdin = body.repr)
-        of nnkCommand(ident"test", `title` @ nnkStrLit, `body` @ nnkStmtList):
-          when defined test: tests.add buildTestCase($title, env = env, stdin = body.repr)
-        of nnkCommand(ident"test",
-          nnkCommand(ident"expect", `expectOverride` @ nnkPar), `body` @ nnkStmtList):
-          when defined test: tests.add buildTestCase($tests.len, env, override(defaultExpectation, envOverride), body.repr)
-        of nnkCommand(ident"test", nnkCommand(`title` @ nnkStrLit,
-          nnkCommand(ident"expect", `expectOverride` @ nnkPar)), `body` @ nnkStmtList):
-          when defined test: tests.add buildTestCase($title, env, override(defaultExpectation, envOverride), body.repr)
-        of nnkCommand(ident"expect", `expectOverride` @ nnkPar, `body` @ nnkStmtList):
-          var expect = override(defaultExpectation, expectOverride)
-          body.matchAst:
+        for child in body.children:
+          child.matchAst:
           of nnkCall(ident"test", `body` @ nnkStmtList):
-            when defined test: tests.add buildTestCase($tests.len, env, expect, stdin = body.repr)
+            when defined test: tests.add newPar(newLit($tests.len), envOverride, nil, body)
           of nnkCommand(ident"test", `title` @ nnkStrLit, `body` @ nnkStmtList):
-            when defined test: tests.add buildTestCase($title, env, expect, body.repr)
+            when defined test: tests.add newPar(newLit($title), envOverride, nil, body)
+          of nnkCommand(ident"test",
+            nnkCommand(ident"expect", `expectOverride` @ nnkPar), `body` @ nnkStmtList):
+            when defined test: tests.add newPar(newLit($tests.len), envOverride, expectOverride, body)
+          of nnkCommand(ident"test", nnkCommand(`title` @ nnkStrLit,
+            nnkCommand(ident"expect", `expectOverride` @ nnkPar)), `body` @ nnkStmtList):
+            when defined test: tests.add newPar(newLit($title), envOverride, expectOverride, body)
+          of nnkCommand(ident"expect", `expectOverride` @ nnkPar, `body` @ nnkStmtList):
+            for child in body.children:
+              child.matchAst:
+              of nnkCall(ident"test", `body` @ nnkStmtList):
+                when defined test: tests.add newPar(newLit($tests.len), envOverride, expectOverride, body)
+              of nnkCommand(ident"test", `title` @ nnkStrLit, `body` @ nnkStmtList):
+                when defined test: tests.add newPar(newLit($title), envOverride, expectOverride, body)
     of nnkCommand(ident"expect", `expectOverride` @ nnkPar, `body` @ nnkStmtList):
       when defined test:
-        var expect = override(defaultExpectation, expectOverride)
-        body.matchAst:
-        of nnkCall(ident"test", `body` @ nnkStmtList):
-          when defined test: tests.add buildTestCase($tests.len, expect = expect, stdin = body.repr)
-        of nnkCommand(ident"test", `title` @ nnkStrLit, `body` @ nnkStmtList):
-          when defined test: tests.add buildTestCase($title, expect = expect, stdin = body.repr)
-        of nnkCommand(ident"test",
-          nnkCommand(ident"with", `envOverride` @ nnkPar), `body` @ nnkStmtList):
-          when defined test: tests.add buildTestCase($tests.len, override(defaultEnvironment, envOverride), expect, body.repr)
-        of nnkCommand(ident"test", nnkCommand(`title` @ nnkStrLit,
-          nnkCommand(ident"with", `envOverride` @ nnkPar)), `body` @ nnkStmtList):
-          when defined test: tests.add buildTestCase($title, override(defaultEnvironment, envOverride), expect, body.repr)
-        of nnkCommand(ident"with", `envOverride` @ nnkPar, `body` @ nnkStmtList):
-          var env = override(defaultEnvironment, envOverride)
-          body.matchAst:
+        for child in body.children:
+          child.matchAst:
           of nnkCall(ident"test", `body` @ nnkStmtList):
-            when defined test: tests.add buildTestCase($tests.len, env, expect, body.repr)
+            when defined test: tests.add newPar(newLit($tests.len), nil, expectOverride, body)
           of nnkCommand(ident"test", `title` @ nnkStrLit, `body` @ nnkStmtList):
-            when defined test: tests.add buildTestCase($title, env, expect, body.repr)
+            when defined test: tests.add newPar(newLit($title), nil, expectOverride, body)
+          of nnkCommand(ident"test",
+            nnkCommand(ident"with", `envOverride` @ nnkPar), `body` @ nnkStmtList):
+            when defined test: tests.add newPar(newLit($tests.len), envOverride, expectOverride, body)
+          of nnkCommand(ident"test", nnkCommand(`title` @ nnkStrLit,
+            nnkCommand(ident"with", `envOverride` @ nnkPar)), `body` @ nnkStmtList):
+            when defined test: tests.add newPar(newLit($title), envOverride, expectOverride, body)
+          of nnkCommand(ident"with", `envOverride` @ nnkPar, `body` @ nnkStmtList):
+            for child in body.children:
+              child.matchAst:
+              of nnkCall(ident"test", `body` @ nnkStmtList):
+                when defined test: tests.add newPar(newLit($tests.len), envOverride, expectOverride, body)
+              of nnkCommand(ident"test", `title` @ nnkStrLit, `body` @ nnkStmtList):
+                when defined test: tests.add newPar(newLit($title), envOverride, expectOverride, body)
     of nnkCommand(ident"test", nnkCommand(`title` @ nnkStrLit,
        nnkCommand(ident"expect", `expectOverride` @ nnkPar)), `body` @ nnkStmtList):
-        when defined test: tests.add buildTestCase($title, expect = override(defaultExpectation, expectOverride), stdin = body.repr)
+        when defined test: tests.add newPar(newLit($title), nil, expectOverride, body)
     of nnkCommand(ident"test",
        nnkCommand(ident"expect", `expectOverride` @ nnkPar), `body` @ nnkStmtList):
-        when defined test: tests.add buildTestCase($tests.len, expect = override(defaultExpectation, expectOverride), stdin = body.repr)
+        when defined test: tests.add newPar(newLit($tests.len), nil, expectOverride, body)
     of nnkCommand(ident"test", nnkCommand(`title` @ nnkStrLit,
        nnkCommand(ident"with", nnkCommand(`envOverride` @ nnkPar,
        nnkCommand(ident"expect", `expectOverride` @ nnkPar)))), `body` @ nnkStmtList):
-        when defined test: tests.add buildTestCase($title, override(defaultEnvironment, envOverride),
-                   override(defaultExpectation, expectOverride), body.repr)
+        when defined test: tests.add newPar(newLit($title), envOverride, expectOverride, body)
     of nnkCommand(ident"test",
        nnkCommand(ident"with", nnkCommand(`envOverride` @ nnkPar,
        nnkCommand(ident"expect", `expectOverride` @ nnkPar))), `body` @ nnkStmtList):
-        when defined test: tests.add buildTestCase($tests.len, override(defaultEnvironment, envOverride),
-                   override(defaultExpectation, expectOverride), body.repr)
+        when defined test: tests.add newPar(newLit($tests.len), envOverride, expectOverride, body)
     of nnkCommand(ident"test", nnkCommand(`title` @ nnkStrLit,
        nnkCommand(ident"expect", nnkCommand(`expectOverride` @ nnkPar,
        nnkCommand(ident"with", `envOverride` @ nnkPar)))), `body` @ nnkStmtList):
-        when defined test: tests.add buildTestCase($title, override(defaultEnvironment, envOverride),
-                   override(defaultExpectation, expectOverride), body.repr)
+        when defined test: tests.add newPar(newLit($title), envOverride, expectOverride, body)
     of nnkCommand(ident"with", nnkCommand(`envOverride` @ nnkPar,
        nnkCommand(ident"test", nnkCommand(`title` @ nnkStrLit,
        nnkCommand(ident"expect", `expectOverride` @ nnkPar)))), `body` @ nnkStmtList):
-        when defined test: tests.add buildTestCase($title, override(defaultEnvironment, envOverride),
-                   override(defaultExpectation, expectOverride), body.repr)
+        when defined test: tests.add newPar(newLit($title), envOverride, expectOverride, body)
     of nnkCommand(ident"expect", nnkCommand(`expectOverride` @ nnkPar,
        nnkCommand(ident"with", nnkCommand(`envOverride` @ nnkPar,
        nnkCommand(ident"test", `title` @ nnkStrLit)))), `body` @ nnkStmtList):
-        when defined test: tests.add buildTestCase($title, override(defaultEnvironment, envOverride),
-                   override(defaultExpectation, expectOverride), body.repr)
+        when defined test: tests.add newPar(newLit($title), envOverride, expectOverride, body)
     else: newBody.add child
 
 macro test*(origProcDef: untyped): untyped =
@@ -235,8 +230,8 @@ macro test*(origProcDef: untyped): untyped =
           var testIndex: int
           for test in tests:
             let procName = ident(macroBaseName & '_' & $testIndex)
-            let stdin = """import "./""" & module & """"\n""" & test.stdin
-            let title = test.title
+            let stdin = """import "./""" & module & """"\n""" & test[3].repr
+            let title = $test[0]
             quote do:
               proc `procName` =
                 unittest.testCases.add(
@@ -258,10 +253,6 @@ macro test*(origProcDef: untyped): untyped =
                 ))
               `procName`()
             testIndex.inc()
-  #else:
-    #when defined test:
-    #  echo matchErrors
-    #else: discard
   log repr result
 
 proc lessThanTen*[T](x: T, o = ""): bool {.test.} =
@@ -273,13 +264,18 @@ proc lessThanTen*[T](x: T, o = ""): bool {.test.} =
       check not 11.lessThanTen
   test "other":
     echo "hello"
+  test:
+    echo "hello"
   test with (command: "nim r -"):
     quit 1
   with (command: "nim r -") test "lessThanTen":
     quit 1
-#[   with (command: "nim r -"):
-    test "lessThanTen":
-      quit 1 ]#
+  with (command: "nim r -"):
+    test:
+      echo "hello"
+    expect (exitCode: 1):
+      test:
+        quit 1
   test "lessThanTen" expect (exitCode: 0..10):
     quit 1
   test "lessThanTen" with (command: "nim r -") expect (exitCode: 0..10):
