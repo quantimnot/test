@@ -9,39 +9,6 @@ export stdUnittest.fail]#
 
 import pkg/prelude/[common, lib]
 
-iface TextMatcher:
-  proc firstMatch(corpus, pattern: string): Option[Slice[int]]
-type TestKind* {.pure.} = enum
-  Unit,
-  Functional,
-  Coverage,
-  Benchmark,
-  Syscall,
-type TestSubject* = object
-  ident*: string
-  signature*: string
-  module*: string
-  modulePath*: string
-  line*: int
-  column*: int
-  sigHash*: string
-  implHash*: string
-type ExitCodeRange* = Slice[int]
-type ExecEnvironment* = object
-  command*: string
-  variables*: seq[(string, string)]
-  workingDir*: string
-type Expectation* = object
-  exitCode*: ExitCodeRange
-  stdout*: seq[TextMatcher]
-  stderr*: seq[TextMatcher]
-type TestCase* = object
-  subject*: TestSubject
-  env*: ExecEnvironment
-  expect*: Expectation
-  title*: string
-  stdin*: string
-
 when defined test:
   when defined testCoverage:
     import pkg/coverage
@@ -54,6 +21,38 @@ when defined test:
     discard
   when defined testFileIo:
     discard
+
+  iface TextMatcher:
+    proc firstMatch(corpus, pattern: string): Option[Slice[int]]
+  type TestKind* {.pure.} = enum
+    Unit,
+    Functional,
+    Coverage,
+    Benchmark,
+    Syscall,
+  type TestSubject* = object
+    ident*: string
+    signature*: string
+    module*: string
+    modulePath*: string
+    line*: int
+    column*: int
+    sigHash*: string
+    implHash*: string
+  type ExecEnvironment* = object
+    command*: string
+    variables*: seq[(string, string)]
+    workingDir*: string
+  type Expectation* = object
+    exitCode*: Slice[int] # TODO: should be set[int]?
+    stdout*: seq[TextMatcher]
+    stderr*: seq[TextMatcher]
+  type TestCase* = object
+    subject*: TestSubject
+    env*: ExecEnvironment
+    expect*: Expectation
+    title*: string
+    stdin*: string
 
   from std/hashes import hash
   from std/os import splitFile
@@ -84,20 +83,23 @@ when defined test:
     if offset == -1: return
     else: some offset..length
 
-  converter toExitCodeRange*(returnCode: int): ExitCodeRange =
+  func toSlice*(returnCode: int): Slice[int] =
     returnCode..returnCode
 
-  var testCases: seq[TestCase]
+  import std/tables
+  var testCases: Table[string, seq[TestCase]]
+
   const
     nimRunTemplate {.strdefine.} = "nim {backend} {defines} r - 2>{testRunInputHash}"
-    defaultEnvironment = ExecEnvironment(command: nimRunTemplate)
-    defaultExpectation = Expectation()
+    defaultEnvironment = ExecEnvironment(command: nimRunTemplate) # TODO: need?
+    defaultExpectation = Expectation() # TODO: need?
 
   proc runTests() =
     if testCases.len > 0:
-      log "running " & $testCases.len & " tests"
-      for t in testCases:
-        echo repr t
+      echo "running " & $testCases.len & " tests"
+#[       for sig, tests in testCases.pairs:
+        for test in tests:
+          echo test.subject.signature[0..4] & test.subject.ident & test.subject.signature[5..^1] ]#
 
   from std/exitprocs import addExitProc
   exitprocs.addExitProc runTests
@@ -109,9 +111,6 @@ when defined test:
   macro implHash(sym: typed): untyped =
     newLit symBodyHash sym
 
-  template buildTestCase(title, env, expect, stdin: untyped = nnkDiscardStmt): untyped =
-    newPar(title, env, expect, stdin)
-
 proc extractTests(procDef: NimNode): (NimNode, seq[NimNode]) {.compileTime.} =
   result[0] = procDef.copy
   alias origBody, procDef[6]
@@ -120,7 +119,7 @@ proc extractTests(procDef: NimNode): (NimNode, seq[NimNode]) {.compileTime.} =
   result[0][6] = newStmtList()
   assert procDef.kind in RoutineNodes
   assert origBody.kind == nnkStmtList
-  macro override[T: ExecEnvironment|Expectation](a: T, b: NimNode): T =
+  macro override(a, b: NimNode): NimNode =
     var c = a.copy
     c
   for child in origBody.children:
@@ -234,23 +233,21 @@ macro test*(origProcDef: untyped): untyped =
             let title = $test[0]
             quote do:
               proc `procName` =
-                unittest.testCases.add(
-                  TestCase(
+                var tests = unittest.testCases.getOrDefault(`symbol`.sigHash)
+                tests.add(TestCase(
                     title: `title`,
                     subject: TestSubject(
                       ident: `ident`,
-                      signature: `sig`,
+                      signature: `symbol`.conanicalSigForm,
                       module: `module`,
                       modulePath: `modulePath`,
                       line: `line`,
                       column: `column`,
                       sigHash: `symbol`.sigHash,
-                      implHash: `symbol`.implHash
-                    ),
+                      implHash: `symbol`.implHash),
                     env: ExecEnvironment(),
                     expect: Expectation(),
-                    stdin: `stdin`
-                ))
+                    stdin: `stdin`))
               `procName`()
             testIndex.inc()
   log repr result
@@ -275,6 +272,8 @@ proc lessThanTen*[T](x: T, o = ""): bool {.test.} =
       echo "hello"
     expect (exitCode: 1):
       test:
+        quit 1
+      test "other":
         quit 1
   test "lessThanTen" expect (exitCode: 0..10):
     quit 1
