@@ -1,12 +1,9 @@
-#[import std/unittest as stdUnittest
-export stdUnittest.TestStatus
-export stdUnittest.TestResult
-export stdUnittest.suiteStarted
-export stdUnittest.testStarted
-export stdUnittest.check
-export stdUnittest.checkpoint
-export stdUnittest.fail]#
-
+##***h* test/test
+##* TODO
+##*   - implement overriding env and expect objects
+##*   - design test execution plan
+##*     - concurrent & async
+##*****
 import pkg/prelude/[common, lib]
 
 when defined test:
@@ -219,7 +216,6 @@ macro test*(origProcDef: untyped): untyped =
       when defined(test):
         if tests.len > 0:
           let ident: string = $origProcDef.name
-          let sig: string = $origProcDef.name.repr
           let symbol = origProcDef.name
           let module = origProcDef.lineInfoObj.filename.splitFile.name
           let modulePath = symbol.lineInfoObj.filename
@@ -250,7 +246,7 @@ macro test*(origProcDef: untyped): untyped =
                     stdin: `stdin`))
               `procName`()
             testIndex.inc()
-  log repr result
+  debug repr result
 
 proc lessThanTen*[T](x: T, o = ""): bool {.test.} =
   test "lessThanTen":
