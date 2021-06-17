@@ -1,11 +1,11 @@
-##***h* test/test
+##***h*
 ##* TODO
 ##*   - implement overriding env and expect objects
 ##*   - hash test cases and combine with the subject of test hash so that
 ##*     tests are only executed when either changes
 ##*   - design test execution plan
 ##*     - concurrent & async
-##*   - persist test results and metrics in a timeseries
+##*   - persist test results and metrics in a time or git-hash series
 ##*     - id
 ##*     - stdout/stderr output
 ##*     - setup/teardown timing
@@ -21,62 +21,17 @@
 import pkg/prelude/[common, lib]
 
 when defined test:
-  when defined testCoverage:
-    import pkg/coverage
-    export coverage.CovData
-  when defined testBench:
-    discard
-  when defined testMemLeaks:
-    discard
-  when defined testSyscalls:
-    discard
-  when defined testFileIo:
-    discard
-
-  iface TextMatcher:
-    proc firstMatch(corpus, pattern: string): Option[Slice[int]]
-
-  type TestKind* {.pure.} = enum
-    Unit,
-    Functional,
-    Coverage,
-    Benchmark,
-    Syscall,
-  type TestSubject* = object
-    ident*: string
-    signature*: string
-    module*: string
-    modulePath*: string
-    line*: int
-    column*: int
-    sigHash*: string
-    implHash*: string
-  type ExecEnvironment* = object
-    command*: string
-    variables*: seq[(string, string)]
-    workingDir*: string
-  type Expectation* = object
-    exitCode*: Slice[int] # TODO: should be set[int]?
-    stdout*: seq[TextMatcher]
-    stderr*: seq[TextMatcher]
-  type TestCase* = object
-    subject*: TestSubject
-    env*: ExecEnvironment
-    expect*: Expectation
-    title*: string
-    stdin*: string
-
+  import ./types
+  import std/[tables, pegs, re, strutils, exitprocs, typetraits]
   from std/hashes import hash
   from std/os import splitFile
 
-  import std/strutils
   type StrLitMatcher = ref object of RootRef
   proc firstMatch(self: StrLitMatcher, corpus, pattern: string): Option[Slice[int]] =
     let offset = pattern.find(pattern)
     if offset == -1: return
     else: some offset..pattern.len
 
-  import std/pegs
   type PegMatcher = ref object of RootRef
   proc firstMatch(self: PegMatcher, corpus, pattern: string): Option[Slice[int]] =
     var matches: seq[string]
@@ -87,7 +42,6 @@ when defined test:
     if offset == -1: return
     else: some offset..length
 
-  import std/re
   type RegexMatcher = ref object of RootRef
   proc firstMatch(self: RegexMatcher, corpus, pattern: string): Option[Slice[int]] =
     var matches: seq[string]
@@ -95,25 +49,18 @@ when defined test:
     if offset == -1: return
     else: some offset..length
 
-  func toSlice*(returnCode: int): Slice[int] =
-    returnCode..returnCode
-
-  import std/tables
   var testCases: Table[string, seq[TestCase]]
 
   const
     nimRunTemplate {.strdefine.} = "nim {backend} {defines} r - 2>{testRunInputHash}"
-    defaultEnvironment = ExecEnvironment(command: nimRunTemplate) # TODO: need?
-    defaultExpectation = Expectation() # TODO: need?
 
   proc runTests() =
     if testCases.len > 0:
       echo "running " & $testCases.len & " tests"
-      for sig, tests in testCases.pairs:
+      for sig, tests in testCases:
         for test in tests:
           echo test.subject.signature[0..4] & test.subject.ident & test.subject.signature[5..^1]
 
-  from std/exitprocs import addExitProc
   exitprocs.addExitProc runTests
 
   macro conanicalSigForm(sym: typed): string =
@@ -131,9 +78,6 @@ proc extractTests(procDef: NimNode): (NimNode, seq[NimNode]) {.compileTime.} =
   result[0][6] = newStmtList()
   assert procDef.kind in RoutineNodes
   assert origBody.kind == nnkStmtList
-  macro override(a, b: NimNode): NimNode =
-    var c = a.copy
-    c
   for child in origBody.children:
     child.matchAst:
     of nnkCall(ident"test", `body` @ nnkStmtList):
@@ -219,6 +163,41 @@ proc extractTests(procDef: NimNode): (NimNode, seq[NimNode]) {.compileTime.} =
         when defined test: tests.add newPar(newLit($title), envOverride, expectOverride, body)
     else: newBody.add child
 
+func genSetConstructor(lhs, rhs: NimNode): NimNode {.compileTime.} =
+  result = newStmtList()
+  template clear(lhs: untyped): untyped =
+    lhs.clear()
+  template assign(lhs, rhs: untyped): untyped =
+    lhs = rhs
+  template i(lhs, rhs: untyped): untyped =
+    #bind types.incl
+    lhs.incl(rhs)
+    #[ when `k`.typeof is PackedSet[int]:
+      when `v`.typeof is int:
+        `k`.incl `v` ]#
+  rhs.matchAst:
+  of `value` @ nnkIntLit:
+    result.add getAst assign(lhs, rhs)
+  of `setConstructor` @ nnkCurly:
+    for child in setConstructor:
+      result.add getAst clear(lhs)
+      child.matchAst:
+      of `value` @ nnkIntLit:
+        result.add getAst i(lhs, rhs)
+      of nnkInfix(ident"..", `low` @ nnkIntLit, `high` @ nnkIntLit):
+        result.add getAst assign(lhs, rhs)
+  of nnkInfix(ident"..", `low` @ nnkIntLit, `high` @ nnkIntLit):
+    result.add getAst assign(lhs, rhs)
+
+func composeExpect(lhs, rhs: NimNode): NimNode {.compileTime.} =
+  newColonExpr lhs, rhs
+#[   quote do:
+    var expect = Expectation(
+      exitCode: {},
+      stdout: @[],
+      stderr: @[]
+    ) ]#
+
 macro test*(origProcDef: untyped): untyped =
   result = origProcDef
   matchAst(origProcDef, matchErrors):
@@ -240,12 +219,32 @@ macro test*(origProcDef: untyped): untyped =
           var testIndex: int
           for test in tests:
             let procName = ident(macroBaseName & '_' & $testIndex)
-            let stdin = """import "./""" & module & """"\n""" & test[3].repr
+            let stdin = """import "./""" & module & "\"\n" & test[3].repr
             let title = $test[0]
+            var env = buildAst(stmtList):
+              for override in test[1]:
+                let k = override[0]
+                let v = override[1]
+                quote do: `k` = `v`
+            var expect = init[Expectation] test[2]
+#[             buildAst(stmtList):
+              for override in test[2]:
+                let k = override[0]
+                let v = override[1]
+                let initializer = composeExpect(k, v) ]#
+
+               #[  for field in Expectation().fields:
+                  when field.typeof is PackedSet:
+                    genSetConstructor k, v ]#
+            #echo expect.repr
+                #quote do: discard
+                  #when `k`.typeof is PackedSet[int]:
+                  #  when `v`.typeof is int:
+                  #    `k`.incl `v`
             quote do:
               proc `procName` =
                 var tests = unittest.testCases.getOrDefault(`symbol`.sigHash)
-                tests.add(TestCase(
+                var test = TestCase(
                     title: `title`,
                     subject: TestSubject(
                       ident: `ident`,
@@ -257,11 +256,15 @@ macro test*(origProcDef: untyped): untyped =
                       sigHash: `symbol`.sigHash,
                       implHash: `symbol`.implHash),
                     env: ExecEnvironment(),
-                    expect: Expectation(),
-                    stdin: `stdin`))
+                    expect: `expect`,
+                    stdin: `stdin`)
+                with test.env:
+                  `env`
+                #with test.expect:
+                #  `expect`
+                tests.add(test)
               `procName`()
             testIndex.inc()
-  debug repr result
 
 proc lessThanTen*[T](x: T, o = ""): bool {.test.} =
   test "lessThanTen":
@@ -286,14 +289,14 @@ proc lessThanTen*[T](x: T, o = ""): bool {.test.} =
         quit 1
       test "other":
         quit 1
-  test "lessThanTen" expect (exitCode: 0..10):
+#[   test "lessThanTen" expect (exitCode: {0..10, int.high}):
     quit 1
   test "lessThanTen" with (command: "nim r -") expect (exitCode: 0..10):
     quit 1
   test "lessThanTen" expect (exitCode: 0..10) with (command: "nim r -"):
     quit 1
   with (command: "nim r -") test "lessThanTen" expect (exitCode: 0..10):
-    quit 1
+    quit 1 ]#
   if x < 10:
     return true
   else:

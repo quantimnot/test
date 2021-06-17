@@ -1,0 +1,2 @@
+--nimcache:"."
+--excessiveStackTrace:off

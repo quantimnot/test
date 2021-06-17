@@ -1,0 +1,17 @@
+---
+- name: ""
+  timeout_ms: 300
+  maxmem_mib: 3000
+  stdin:
+    literal: ""
+    uri: ""
+    handlebars_template: ""
+  stdout:
+    literal: ""
+    regex: ""
+    peg: ""
+  stderr:
+    literal: ""
+    regex: ""
+    peg: ""
+  exitcode: 0
