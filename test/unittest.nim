@@ -18,7 +18,7 @@
 ##*   - load default env and expect from a config
 ##*****
 
-import pkg/prelude/[common, lib]
+import pkg/prelude/[common, lib, init]
 
 when defined test:
   import ./types
@@ -49,6 +49,7 @@ when defined test:
     if offset == -1: return
     else: some offset..length
 
+  var testCaseIndex = 0
   var testCases: Table[string, seq[TestCase]]
 
   const
@@ -56,10 +57,13 @@ when defined test:
 
   proc runTests() =
     if testCases.len > 0:
-      echo "running " & $testCases.len & " tests"
+      echo "running " & $testCaseIndex & " tests"
       for sig, tests in testCases:
         for test in tests:
-          echo test.subject.signature[0..4] & test.subject.ident & test.subject.signature[5..^1]
+          echo test.subject.ident
+          # echo test.subject.signature[0..4] & test.subject.ident & test.subject.signature[5..^1]
+    else:
+      echo "no tests found"
 
   exitprocs.addExitProc runTests
 
@@ -85,15 +89,15 @@ proc extractTests(procDef: NimNode): (NimNode, seq[NimNode]) {.compileTime.} =
     of nnkCommand(ident"test", `title` @ nnkStrLit, `body` @ nnkStmtList):
       when defined test: tests.add newPar(newLit($title), nil, nil, body)
     of nnkCommand(ident"test", nnkCommand(`title` @ nnkStrLit,
-       nnkCommand(ident"with", `envOverride` @ nnkPar)), `body` @ nnkStmtList):
+       nnkCommand(ident"with", `envOverride` @ nnkTupleConstr)), `body` @ nnkStmtList):
       when defined test: tests.add newPar(newLit($title), envOverride, nil, body)
     of nnkCommand(ident"test",
-       nnkCommand(ident"with", `envOverride` @ nnkPar), `body` @ nnkStmtList):
+       nnkCommand(ident"with", `envOverride` @ nnkTupleConstr), `body` @ nnkStmtList):
       when defined test: tests.add newPar(newLit($tests.len), envOverride, nil, body)
-    of nnkCommand(ident"with", nnkCommand(`envOverride` @ nnkPar,
+    of nnkCommand(ident"with", nnkCommand(`envOverride` @ nnkTupleConstr,
        nnkCommand(ident"test", `title` @ nnkStrLit)), `body` @ nnkStmtList):
       when defined test: tests.add newPar(newLit($title), envOverride, nil, body)
-    of nnkCommand(ident"with", `envOverride` @ nnkPar, `body` @ nnkStmtList):
+    of nnkCommand(ident"with", `envOverride` @ nnkTupleConstr, `body` @ nnkStmtList):
       when defined test:
         for child in body.children:
           child.matchAst:
@@ -102,19 +106,19 @@ proc extractTests(procDef: NimNode): (NimNode, seq[NimNode]) {.compileTime.} =
           of nnkCommand(ident"test", `title` @ nnkStrLit, `body` @ nnkStmtList):
             when defined test: tests.add newPar(newLit($title), envOverride, nil, body)
           of nnkCommand(ident"test",
-            nnkCommand(ident"expect", `expectOverride` @ nnkPar), `body` @ nnkStmtList):
+            nnkCommand(ident"expect", `expectOverride` @ nnkTupleConstr), `body` @ nnkStmtList):
             when defined test: tests.add newPar(newLit($tests.len), envOverride, expectOverride, body)
           of nnkCommand(ident"test", nnkCommand(`title` @ nnkStrLit,
-            nnkCommand(ident"expect", `expectOverride` @ nnkPar)), `body` @ nnkStmtList):
+            nnkCommand(ident"expect", `expectOverride` @ nnkTupleConstr)), `body` @ nnkStmtList):
             when defined test: tests.add newPar(newLit($title), envOverride, expectOverride, body)
-          of nnkCommand(ident"expect", `expectOverride` @ nnkPar, `body` @ nnkStmtList):
+          of nnkCommand(ident"expect", `expectOverride` @ nnkTupleConstr, `body` @ nnkStmtList):
             for child in body.children:
               child.matchAst:
               of nnkCall(ident"test", `body` @ nnkStmtList):
                 when defined test: tests.add newPar(newLit($tests.len), envOverride, expectOverride, body)
               of nnkCommand(ident"test", `title` @ nnkStrLit, `body` @ nnkStmtList):
                 when defined test: tests.add newPar(newLit($title), envOverride, expectOverride, body)
-    of nnkCommand(ident"expect", `expectOverride` @ nnkPar, `body` @ nnkStmtList):
+    of nnkCommand(ident"expect", `expectOverride` @ nnkTupleConstr, `body` @ nnkStmtList):
       when defined test:
         for child in body.children:
           child.matchAst:
@@ -123,12 +127,12 @@ proc extractTests(procDef: NimNode): (NimNode, seq[NimNode]) {.compileTime.} =
           of nnkCommand(ident"test", `title` @ nnkStrLit, `body` @ nnkStmtList):
             when defined test: tests.add newPar(newLit($title), nil, expectOverride, body)
           of nnkCommand(ident"test",
-            nnkCommand(ident"with", `envOverride` @ nnkPar), `body` @ nnkStmtList):
+            nnkCommand(ident"with", `envOverride` @ nnkTupleConstr), `body` @ nnkStmtList):
             when defined test: tests.add newPar(newLit($tests.len), envOverride, expectOverride, body)
           of nnkCommand(ident"test", nnkCommand(`title` @ nnkStrLit,
-            nnkCommand(ident"with", `envOverride` @ nnkPar)), `body` @ nnkStmtList):
+            nnkCommand(ident"with", `envOverride` @ nnkTupleConstr)), `body` @ nnkStmtList):
             when defined test: tests.add newPar(newLit($title), envOverride, expectOverride, body)
-          of nnkCommand(ident"with", `envOverride` @ nnkPar, `body` @ nnkStmtList):
+          of nnkCommand(ident"with", `envOverride` @ nnkTupleConstr, `body` @ nnkStmtList):
             for child in body.children:
               child.matchAst:
               of nnkCall(ident"test", `body` @ nnkStmtList):
@@ -136,29 +140,29 @@ proc extractTests(procDef: NimNode): (NimNode, seq[NimNode]) {.compileTime.} =
               of nnkCommand(ident"test", `title` @ nnkStrLit, `body` @ nnkStmtList):
                 when defined test: tests.add newPar(newLit($title), envOverride, expectOverride, body)
     of nnkCommand(ident"test", nnkCommand(`title` @ nnkStrLit,
-       nnkCommand(ident"expect", `expectOverride` @ nnkPar)), `body` @ nnkStmtList):
+       nnkCommand(ident"expect", `expectOverride` @ nnkTupleConstr)), `body` @ nnkStmtList):
         when defined test: tests.add newPar(newLit($title), nil, expectOverride, body)
     of nnkCommand(ident"test",
-       nnkCommand(ident"expect", `expectOverride` @ nnkPar), `body` @ nnkStmtList):
+       nnkCommand(ident"expect", `expectOverride` @ nnkTupleConstr), `body` @ nnkStmtList):
         when defined test: tests.add newPar(newLit($tests.len), nil, expectOverride, body)
     of nnkCommand(ident"test", nnkCommand(`title` @ nnkStrLit,
-       nnkCommand(ident"with", nnkCommand(`envOverride` @ nnkPar,
-       nnkCommand(ident"expect", `expectOverride` @ nnkPar)))), `body` @ nnkStmtList):
+       nnkCommand(ident"with", nnkCommand(`envOverride` @ nnkTupleConstr,
+       nnkCommand(ident"expect", `expectOverride` @ nnkTupleConstr)))), `body` @ nnkStmtList):
         when defined test: tests.add newPar(newLit($title), envOverride, expectOverride, body)
     of nnkCommand(ident"test",
-       nnkCommand(ident"with", nnkCommand(`envOverride` @ nnkPar,
-       nnkCommand(ident"expect", `expectOverride` @ nnkPar))), `body` @ nnkStmtList):
+       nnkCommand(ident"with", nnkCommand(`envOverride` @ nnkTupleConstr,
+       nnkCommand(ident"expect", `expectOverride` @ nnkTupleConstr))), `body` @ nnkStmtList):
         when defined test: tests.add newPar(newLit($tests.len), envOverride, expectOverride, body)
     of nnkCommand(ident"test", nnkCommand(`title` @ nnkStrLit,
-       nnkCommand(ident"expect", nnkCommand(`expectOverride` @ nnkPar,
-       nnkCommand(ident"with", `envOverride` @ nnkPar)))), `body` @ nnkStmtList):
+       nnkCommand(ident"expect", nnkCommand(`expectOverride` @ nnkTupleConstr,
+       nnkCommand(ident"with", `envOverride` @ nnkTupleConstr)))), `body` @ nnkStmtList):
         when defined test: tests.add newPar(newLit($title), envOverride, expectOverride, body)
-    of nnkCommand(ident"with", nnkCommand(`envOverride` @ nnkPar,
+    of nnkCommand(ident"with", nnkCommand(`envOverride` @ nnkTupleConstr,
        nnkCommand(ident"test", nnkCommand(`title` @ nnkStrLit,
-       nnkCommand(ident"expect", `expectOverride` @ nnkPar)))), `body` @ nnkStmtList):
+       nnkCommand(ident"expect", `expectOverride` @ nnkTupleConstr)))), `body` @ nnkStmtList):
         when defined test: tests.add newPar(newLit($title), envOverride, expectOverride, body)
-    of nnkCommand(ident"expect", nnkCommand(`expectOverride` @ nnkPar,
-       nnkCommand(ident"with", nnkCommand(`envOverride` @ nnkPar,
+    of nnkCommand(ident"expect", nnkCommand(`expectOverride` @ nnkTupleConstr,
+       nnkCommand(ident"with", nnkCommand(`envOverride` @ nnkTupleConstr,
        nnkCommand(ident"test", `title` @ nnkStrLit)))), `body` @ nnkStmtList):
         when defined test: tests.add newPar(newLit($title), envOverride, expectOverride, body)
     else: newBody.add child
@@ -198,7 +202,7 @@ func composeExpect(lhs, rhs: NimNode): NimNode {.compileTime.} =
       stderr: @[]
     ) ]#
 
-macro test*(origProcDef: untyped): untyped =
+macro testable*(origProcDef: untyped): untyped =
   result = origProcDef
   matchAst(origProcDef, matchErrors):
   of {nnkProcDef, nnkFuncDef}:
@@ -226,7 +230,11 @@ macro test*(origProcDef: untyped): untyped =
                 let k = override[0]
                 let v = override[1]
                 quote do: `k` = `v`
-            var expect = init[Expectation] test[2]
+            var expect =
+              if test[2].kind == nnkTupleConstr:
+                test[2]
+              else:
+                nnkTupleConstr.newTree()
 #[             buildAst(stmtList):
               for override in test[2]:
                 let k = override[0]
@@ -243,7 +251,7 @@ macro test*(origProcDef: untyped): untyped =
                   #    `k`.incl `v`
             quote do:
               proc `procName` =
-                var tests = unittest.testCases.getOrDefault(`symbol`.sigHash)
+                var tests = testCases.mgetOrPut(`symbol`.sigHash, @[])
                 var test = TestCase(
                     title: `title`,
                     subject: TestSubject(
@@ -256,17 +264,19 @@ macro test*(origProcDef: untyped): untyped =
                       sigHash: `symbol`.sigHash,
                       implHash: `symbol`.implHash),
                     env: ExecEnvironment(),
-                    expect: `expect`,
+                    expect: initFromTuple(Expectation, `expect`),
                     stdin: `stdin`)
                 with test.env:
                   `env`
-                #with test.expect:
+                # with test.expect:
                 #  `expect`
                 tests.add(test)
+                testCases[`symbol`.sigHash] = tests
               `procName`()
+              testCaseIndex.inc()
             testIndex.inc()
 
-proc lessThanTen*[T](x: T, o = ""): bool {.test.} =
+proc lessThanTen*[T](x: T, o = ""): bool {.testable.} =
   test "lessThanTen":
     import std/unittest
     test "lessThanTen":
@@ -289,14 +299,14 @@ proc lessThanTen*[T](x: T, o = ""): bool {.test.} =
         quit 1
       test "other":
         quit 1
-#[   test "lessThanTen" expect (exitCode: {0..10, int.high}):
-    quit 1
+  # test "lessThanTen" expect (exitCode: {0..10, int.high}):
+    # quit 1
   test "lessThanTen" with (command: "nim r -") expect (exitCode: 0..10):
     quit 1
   test "lessThanTen" expect (exitCode: 0..10) with (command: "nim r -"):
     quit 1
   with (command: "nim r -") test "lessThanTen" expect (exitCode: 0..10):
-    quit 1 ]#
+    quit 1
   if x < 10:
     return true
   else:

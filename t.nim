@@ -48,13 +48,8 @@ when defined dumpTree:
 
 when isMainModule:
   dumpTree:
-    test:
-      "test":
-        "handles nested tests":
-          "invariants":
-            assert 1 == 1
-  test:
-    echo ""
+    test with (command: "nim r -"):
+      quit 1
 #  describe (name: "commandline arguments", group: ""):
 #  describe "commandline arguments":
 #    it "runs nim programs", "":
