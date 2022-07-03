@@ -6,8 +6,16 @@
 ##   minitest framework
 ##   https://github.com/xmonader/nim-minitest
 
-when defined testRunTests:
-  import std/[strformat, strutils, macros, oids, sha1, tables, options]
+when defined runtests:
+  import std/[strformat, strutils, macros, oids, sha1, tables, options, base64]
+  export oids.`$`
+
+  type TestKind* {.pure.} = enum
+    Unit,
+    Functional,
+    Coverage,
+    Benchmark,
+    Syscall,
 
   type ResultKind* {.pure.} = enum
     Pass = 0,
@@ -25,7 +33,15 @@ when defined testRunTests:
     HashValue {.union.} = object
       sha1: Sha1Digest
     HashTable = Table[HashKind, HashValue]
-  type TestCaseId* = Oid
+  type
+    TestCaseIdKind* {.pure.} = enum
+      NimSigHash, Oid
+    TestCaseId* = object
+      case kind*: TestCaseIdKind
+      of NimSigHash:
+        nimSigHash*: string
+      of TestCaseIdKind.Oid:
+        oid*: Oid
   type TestCase* = ref object of RootObj
     expected*: string
     ## Expected test outcome.
@@ -33,15 +49,15 @@ when defined testRunTests:
     ## Actual test outcome.
     result*: ResultKind
     ## The result of the test. See `ResultKind`
-    desc*: string
+    desc*: Option[string]
     ## Optional test description.
-    diag*: string
+    diag*: Option[string]
     ## Optional test diagnostics.
-    labels*: seq[string]
+    labels*: Option[seq[string]]
     ## Optional labels for a test.
-    suite*: string
+    suite*: Option[string]
     ## Optional test suite.
-    cite*: string
+    cite*: Option[string]
     ## Optional citation of test case source. (i.e. examples from a standards doc)
     id*: TestCaseId
     ## Optional unique test case identifier.
@@ -55,13 +71,26 @@ when defined testRunTests:
     ## Optional table of test input hashes. This can be used to track changes to
     ## the program inputs under test.
 
+
+  proc init*(test: var TestCase) {.tags: [TimeEffect].} =
+    test.id = TestCaseId(kind: TestCaseIdKind.Oid, oid: genOid())
+  
+
+  proc `$`*(id: TestCaseId): string =
+    case id.kind
+    of TestCaseIdKind.Oid:
+      ($id.kind) & ": " & $id.oid
+    of TestCaseIdKind.NimSigHash:
+      ($id.kind) & ": " & $id.nimSigHash
+
+
   var testCases: seq[TestCase]
 
   proc test(suite, desc, diag = ""; skip, todo = false; id = none(TestCaseId)) =
     var testCase = TestCase(
       result: (if skip: Skip elif todo: Todo else: Pass),
-      desc: desc,
-      diag: diag,
+      desc: if desc.len > 0: some(desc) else: none(string),
+      diag: if diag.len > 0: some(diag) else: none(string),
     )
 
   template check*(exp: untyped, idx = 0, desc, diag = "", skip, todo = false): void =
@@ -175,5 +204,5 @@ else:
   template suite*(label: string, exprs: untyped): untyped = discard
   template test*(label: string, exprs: untyped): untyped = discard
   template check*(label: string, exprs: untyped): untyped = discard
-  when defined test:
-    {.hint: "`test` is defined, but not `testRunTests`; define `testRunTests` to compile and execute builtin tests.".}
+  # when defined test:
+    # {.hint: "`test` is defined, but not `testRunTests`; define `testRunTests` to compile and execute builtin tests.".}
