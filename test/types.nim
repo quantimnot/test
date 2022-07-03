@@ -1,11 +1,13 @@
-##***h*
-##* TODO
-##*   - 
-##*****
+#****h*
+## TODO
+##   - 
+#******
 
-import pkg/prelude
-
-import std/[packedsets, setutils]
+import
+  std/[options, packedsets, setutils],
+  pkg/iface,
+  test
+export test except TestCase
 export packedsets
 
 when defined testCoverage:
@@ -21,7 +23,7 @@ when defined testFileIo:
   discard
 
 iface TextMatcher:
-  proc firstMatch(corpus, pattern: string): Option[Slice[int]]
+  proc firstMatch(corpus, pattern: string): Option[Slice[int]] {.used.}
 
 #[ The above gets rewritten into:
 type
@@ -44,12 +46,6 @@ converter toTextMatcher[T](a`gensym3: T): TextMatcher {.inline.} =
   to(a`gensym3, TextMatcher)
 ]#
 
-type TestKind* {.pure.} = enum
-  Unit,
-  Functional,
-  Coverage,
-  Benchmark,
-  Syscall,
 type TestSubject* = object
   ident*: string
   signature*: string
@@ -61,18 +57,20 @@ type TestSubject* = object
   implHash*: string
 type ExecEnvironment* = object
   command*: string
-  variables*: seq[(string, string)]
-  workingDir*: string
+  ## Command that will execute `IsolatedTestCase.src`.
+  envVars*: seq[(string, string)]
+  ## Environment variables set for program execution.
+  # TODO: timeoutSec: int
 type Expectation* = object
   exitCode: PackedSet[int]
   stdout*: seq[TextMatcher]
   stderr*: seq[TextMatcher]
-type TestCase* = object
+type IsolatedTestCase* = ref object of test.TestCase
   subject*: TestSubject
   env*: ExecEnvironment
   expect*: Expectation
   title*: string
-  stdin*: string
+  src*: string
 
 func toSlice*(val: int): Slice[int] =
   val..val
@@ -112,3 +110,7 @@ func `exitCode=`*(self: var Expectation, value: Slice[int]) =
   self.exitCode.clear()
   for i in value.a..value.b:
     self.exitCode.incl(i)
+
+proc newUnitTestCase*(subject: TestSubject, env: ExecEnvironment, expect: Expectation, title, src: string): owned IsolatedTestCase {.tags: [TimeEffect].} =
+  result = IsolatedTestCase(subject: subject, env: env, expect: expect, title: title, src: src)
+  result.id = TestCaseId(kind: TestCaseIdKind.NimSigHash, nimSigHash: subject.sigHash)
