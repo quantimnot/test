@@ -1,2 +1,2 @@
-# --nimcache:"."
---excessiveStackTrace:off
+--d:runtests
+import prelude/compiler_config
